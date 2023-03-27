@@ -29,9 +29,10 @@ The script can be run using the following command:
 
 The optional arguments are:
 
--n NUM_ARTICLES: the number of articles to process (default is 5)
---print_cache: print all cached sentiment analysis results
---analyze_cache: analyze sentiment analysis results in the cache and exit
+- -n NUM_ARTICLES: the number of articles to process (default is 5)
+- --print_cache: print all cached sentiment analysis results
+- --analyze_cache: analyze sentiment analysis results in the cache and exit
+
 When the script is run, it fetches financial news articles from Google News and processes each one using the GPT-3 API. The sentiment analysis results are printed to the console. Results are cached to improve performance, and the cache can be printed or analyzed using the optional arguments.
 
 Note: before running the script, be sure to set up your OpenAI API key as an environment variable.
