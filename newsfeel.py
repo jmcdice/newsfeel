@@ -93,15 +93,14 @@ def get_cached_sentiment_analysis(url, title, content, args):
         sentiment = "Unknown"
         confidence = 0
 
-    #sentiment_cache[url] = (now, sentiment, confidence, response, content_hash)
-    sentiment_cache[url] = (now, sentiment_map.get(sentiment.lower(), "Unknown"), confidence, response, content_hash)
-
+    fsentiment = sentiment_map.get(sentiment.lower(), "Unknown")
+    sentiment_cache[url] = (now, fsentiment, confidence, response, content_hash)
 
     # Save cache to disk
     with open(cache_file, "wb") as f:
         pickle.dump(sentiment_cache, f)
 
-    return sentiment, confidence, None
+    return fsentiment, confidence, None
 
 def analyze_cache_sentiments():
     sentiment_mapping = {'bullish': 1, 'neutral': 0, 'bearish': -1}
