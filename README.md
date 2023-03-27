@@ -41,6 +41,18 @@ Note: before running the script, be sure to set up your OpenAI API key as an env
 
 Here's an example that can help understand what's in the cache:
 ```console
+  # First build the cache
+  ./newsfeel.py -n 100 --debug
+  https://news.google.com/search?q=Financial%2BNews%2Bwhen%3A1d&hl=en
+  Processing 100 articles...
+
+  ...
+
+```
+  
+Then, analyze the cache
+
+```console
   ./newsfeel.py --print_cache |grep ^Sentiment| sort | uniq -c | sort -r
 
   83 Sentiment: Bullish
