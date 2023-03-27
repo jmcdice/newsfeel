@@ -37,6 +37,20 @@ When the script is run, it fetches financial news articles from Google News and 
 
 Note: before running the script, be sure to set up your OpenAI API key as an environment variable.
 
+## Helpful Example
+
+Here's an example that can help understand what's in the cache:
+```console
+  ./newsfeel.py --print_cache |grep ^Sentiment| sort | uniq -c | sort -r
+
+  83 Sentiment: Bullish
+  74 Sentiment: Neutral
+  57 Sentiment: Bearish
+   5 Sentiment: Unknown
+   1 Sentiment: Very Bullish
+```
+
+
 ![Debug Mode](./screenshot.png "Screenshot")
 
 
