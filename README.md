@@ -37,3 +37,6 @@ When the script is run, it fetches financial news articles from Google News and 
 
 Note: before running the script, be sure to set up your OpenAI API key as an environment variable.
 
+![Debug Mode](./screenshot.png "Screenshot")
+
+

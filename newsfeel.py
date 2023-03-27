@@ -48,7 +48,7 @@ import hashlib
 import re
 import pickle
 
-def get_cached_sentiment_analysis(url, title, content):
+def get_cached_sentiment_analysis(url, title, content, args):
     if content is None:
         return "Unknown", 0, None
     
@@ -60,7 +60,8 @@ def get_cached_sentiment_analysis(url, title, content):
         time_diff = now - cached_time
 
         if time_diff <= expiration_length:
-            print("Article found in cache.")
+            if args.debug:
+                print("Article found in cache.")
             return cached_sentiment, cached_confidence, cached_response
         else:
             print("Article found in cache, but expired.")
@@ -72,7 +73,8 @@ def get_cached_sentiment_analysis(url, title, content):
                    a number between 0 and 10 that represents how confident you are in your sentiment choice. \
                    Then, please provide an explanation for your sentiment choice."
 
-    print("Analyzing article...")
+    if args.debug:
+        print("Analyzing article...")
     try:
         response = send_query(content, context_text)
     except Exception as e:
@@ -181,6 +183,7 @@ def main():
     parser.add_argument('-n', '--num_articles', type=int, default=5, help='Number of articles to process')
     parser.add_argument('--print_cache', action='store_true', help='Print everything in the cache')
     parser.add_argument('--analyze_cache', action='store_true', help='Analyze cache sentiments and exit')
+    parser.add_argument('--debug', action='store_true', help='Print debug info')
     args = parser.parse_args()
 
     if args.print_cache:  
@@ -200,13 +203,14 @@ def main():
             title = article['title']
             url = "https://" + article['link']
             content = get_article_content(url, title)
-            sentiment, confidence, _ = get_cached_sentiment_analysis(url, title, content)
+            sentiment, confidence, _ = get_cached_sentiment_analysis(url, title, content, args)
 
             # Process sentiment analysis results
-            print(f"Article {idx + 1}:")
-            print(f"Title: {title}")
-            print(f"Sentiment: {sentiment}")
-            print("\n")
+            if args.debug:
+                print(f"Article {idx + 1}:")
+                print(f"Title: {title}")
+                print(f"Sentiment: {sentiment}")
+                print("\n")
 
         # Analyze cache sentiments
         analyze_cache_sentiments()
