@@ -24,7 +24,7 @@ This repo contains a Python script for analyzing the sentiment of financial news
 ## Usage
 The script can be run using the following command:
 ```console
-  python3 sentiment_analysis.py [-h] [-n NUM_ARTICLES] [--print_cache] [--analyze_cache]
+  python3 newsfeel.py [-h] [-n NUM_ARTICLES] [--print_cache] [--analyze_cache]
 ```
 
 The optional arguments are:
