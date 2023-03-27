@@ -43,11 +43,6 @@ def get_article_content(url, title):
         return title
     return article.text
 
-import datetime
-import hashlib
-import re
-import pickle
-
 def get_cached_sentiment_analysis(url, title, content, args):
     if content is None:
         return "Unknown", 0, None
