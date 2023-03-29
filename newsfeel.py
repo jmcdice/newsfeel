@@ -21,15 +21,19 @@ logging.getLogger('GoogleNews').setLevel(logging.ERROR)
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
 def send_query(input, context):
-    response = openai.ChatCompletion.create(
-        model='gpt-3.5-turbo',
-        messages=[
-            { "role": "system", "content": context },
-            { "role": "user", "content": input }
-        ],
-        temperature=0.7,
-    )
-    response_text = response['choices'][0]['message']['content'].strip()
+    try:
+        response = openai.ChatCompletion.create(
+            model='gpt-3.5-turbo',
+            messages=[
+                { "role": "system", "content": context },
+                { "role": "user", "content": input }
+            ],
+            temperature=0.7,
+        )
+        response_text = response['choices'][0]['message']['content'].strip()
+    except openai.error.InvalidRequestError as e:
+        print(f"Error: {e}")
+        response_text = "Error: Token limit exceeded"
     return response_text
 
 def get_article_content(url, title):
@@ -44,9 +48,9 @@ def get_article_content(url, title):
     return article.text
 
 def get_cached_sentiment_analysis(url, title, content, args):
-    if content is None:
+    if content is None or len(content) == 0:
         return "Unknown", 0, None
-    
+
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
     now = datetime.datetime.now()
 
@@ -74,6 +78,11 @@ def get_cached_sentiment_analysis(url, title, content, args):
         response = send_query(content, context_text)
     except Exception as e:
         response = send_query(content, title)
+
+    # Check if response indicates an error
+    if "Error: Token limit exceeded" in response:
+        print("Error: Token limit exceeded. Ignoring the article.")
+        return "Unknown", 0, None
 
     sentiment_map = {
         'very bullish': 'Very Bullish',
@@ -132,6 +141,7 @@ def analyze_cache_sentiments():
 
         print(f'Cache Sentiment Analysis:')
         print(f'Sentiment: {sentiment_result}')
+        print(f'Total Articles: {total_articles}')
         print(f'Average Sentiment: {avg_sentiment}')
         print(f'Average Confidence: {avg_confidence:.2f}')
     else:
@@ -163,7 +173,7 @@ def print_cache_info(args):
         print(f"Non-expired articles: {total_articles - expired_count}")
 
 cache_file = "article_cache.pkl"
-expiration_length = datetime.timedelta(days=1)
+expiration_length = datetime.timedelta(days=2)
 
 try:
     with open(cache_file, "rb") as f:
@@ -179,6 +189,18 @@ def main():
     parser.add_argument('--analyze_cache', action='store_true', help='Analyze cache sentiments and exit')
     parser.add_argument('--debug', action='store_true', help='Print debug info')
     args = parser.parse_args()
+
+    # Update cache_file based on the given topic
+    topic_lower = args.topic.lower()
+    cache_file = f"article-{topic_lower}.pkl"
+
+    # Update the cache loading logic
+    global sentiment_cache
+    try:
+        with open(cache_file, "rb") as f:
+            sentiment_cache = pickle.load(f)
+    except FileNotFoundError:
+        sentiment_cache = {}
 
     if args.print_cache:  
         print_cache_info(args)
