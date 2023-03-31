@@ -52,12 +52,13 @@ Here's an example that can help understand what's in the cache:
 
 ```
 
-Then, analyze the cache
+Then, analyze the cache:
 
 ```console
-$ ./newsfeel.py --analyze_cache -t Tesla
-Cache Sentiment Analysis:
-Sentiment: Bullish
+./newsfeel.py --analyze_cache -t Tesla
+Sentiment Analysis for: Tesla
+
+General Sentiment: Bullish
 Total Articles: 103
 Average Confidence: 7.49
 
@@ -68,5 +69,4 @@ Sentiment Counts:
   6 (5.83%) Sentiment: Unknown
   2 (1.94%) Sentiment: Very Bullish
 ```
-
 
