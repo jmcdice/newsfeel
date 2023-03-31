@@ -9,7 +9,7 @@ import hashlib
 import pickle
 import argparse
 from urllib.parse import urljoin
-from termcolor import colored
+from collections import Counter
 from GoogleNews import GoogleNews
 import openai
 from newspaper import Article
@@ -115,43 +115,39 @@ def get_cached_sentiment_analysis(url, title, content, args, cache_file):
 
     return fsentiment, confidence, None
 
+from collections import Counter
+
 def analyze_cache_sentiments(cache_file):
     if not os.path.exists(cache_file):
         print("Cache file does not exist. No sentiments to analyze.")
         return
 
-    sentiment_mapping = {'bullish': 1, 'neutral': 0, 'bearish': -1}
-    sentiment_sum = 0
+    sentiment_mapping = {'very bullish': 2, 'bullish': 1, 'neutral': 0, 'bearish': -1, 'very bearish': -2}
     confidence_sum = 0
     total_articles = 0
 
     with open(cache_file, 'rb') as f:
         sentiment_cache = pickle.load(f)
 
+    sentiment_counts = Counter()
+
     for content_hash, (cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash) in sentiment_cache.items():
-        sentiment_sum += sentiment_mapping.get(cached_sentiment.lower(), 0)
         confidence_sum += float(cached_confidence)
         total_articles += 1
+        sentiment_counts[cached_sentiment] += 1
 
     if total_articles > 0:
-        avg_sentiment = sentiment_sum / total_articles
         avg_confidence = confidence_sum / total_articles
-
-        sentiment_result = 'Neutral'
-        if avg_sentiment < -1.5:
-            sentiment_result = 'Very Bearish'
-        elif avg_sentiment < -0.5:
-            sentiment_result = 'Bearish'
-        elif avg_sentiment > 0.5:
-            sentiment_result = 'Bullish'
-        elif avg_sentiment > 1.5:
-            sentiment_result = 'Very Bullish'
+        majority_sentiment, _ = sentiment_counts.most_common(1)[0]
 
         print(f'Cache Sentiment Analysis:')
-        print(f'Sentiment: {sentiment_result}')
+        print(f'Sentiment: {majority_sentiment}')
         print(f'Total Articles: {total_articles}')
-        print(f'Average Sentiment: {avg_sentiment}')
         print(f'Average Confidence: {avg_confidence:.2f}')
+        print('\nSentiment Counts:')
+        for sentiment, count in sentiment_counts.most_common():
+            percentage = (count / total_articles) * 100
+            print(f'{count:3d} ({percentage:.2f}%) Sentiment: {sentiment}')
     else:
         print('No articles found in cache for sentiment analysis.')
 

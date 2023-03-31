@@ -1,68 +1,72 @@
-## NewsFeel
+# NewsFeel
+## NewsFeel: A Sentiment Analysis Tool for Financial News
 
-NewsFeel: A Sentiment Analysis Tool for Financial News
-
-This repo contains a Python script for analyzing the sentiment of financial news articles. The script uses OpenAI's GPT-3 API to generate a sentiment analysis of each article, and caches the results to improve performance.
+This repo contains a Python script for analyzing the sentiment of financial news articles. The script uses OpenAI's GPT-3 API to generate a sentiment analysis of each article, and caches the results to improve performance. It now supports custom topics for fetching news articles.
 
 ## Installation
-
-1. Clone the repo:
+Clone the repo:
 ```console
   git clone https://github.com/username/repo.git
 ```
 
-2. Install the required packages:
+Install the required packages:
 ```console
   pip install -r requirements.txt
 ```
 
-3. Set up your OpenAI API key as an environment variable:
+Set up your OpenAI API key as an environment variable:
 ```console
   export OPENAI_API_KEY=your_api_key
 ```
 
 ## Usage
 The script can be run using the following command:
+
 ```console
-  python3 newsfeel.py [-h] [-n NUM_ARTICLES] [--print_cache] [--analyze_cache] [--debug]
+  python3 newsfeel.py [-h] [-n NUM_ARTICLES] [--print_cache] [--analyze_cache] [--debug] [-t TOPIC]
 ```
 
 The optional arguments are:
 
 - -n NUM_ARTICLES: the number of articles to process (default is 5)
+- -t TOPIC: the topic to fetch news for (default is 'Financial News')
 - --print_cache: print all cached sentiment analysis results
 - --analyze_cache: analyze sentiment analysis results in the cache and exit
+- --debug: print debug info
 
-When the script is run, it fetches financial news articles from Google News and processes each one using the GPT-3 API. The sentiment analysis results are printed to the console. Results are cached to improve performance, and the cache can be printed or analyzed using the optional arguments.
+When the script is run, it fetches news articles based on the provided topic from Google News and processes each one using the GPT-3 API. The sentiment analysis results are printed to the console. Results are cached to improve performance, and the cache can be printed or analyzed using the optional arguments.
 
 Note: before running the script, be sure to set up your OpenAI API key as an environment variable.
 
-## Helpful Example
+## Example Usage
 
 Here's an example that can help understand what's in the cache:
 ```console
   # First build the cache
-  ./newsfeel.py -n 100 --debug
-  https://news.google.com/search?q=Financial%2BNews%2Bwhen%3A1d&hl=en
+
+  ./newsfeel.py -n 100 --topic "Tesla" --debug
+  https://news.google.com/search?q=Tesla%2Bwhen%3A1d&hl=en
   Processing 100 articles...
 
   ...
 
 ```
-  
+
 Then, analyze the cache
 
 ```console
-  ./newsfeel.py --print_cache |grep ^Sentiment| sort | uniq -c | sort -r
+$ ./newsfeel.py --analyze_cache -t Tesla
+Cache Sentiment Analysis:
+Sentiment: Bullish
+Total Articles: 103
+Average Confidence: 7.49
 
-  83 Sentiment: Bullish
-  74 Sentiment: Neutral
-  57 Sentiment: Bearish
-   5 Sentiment: Unknown
-   1 Sentiment: Very Bullish
+Sentiment Counts:
+ 55 (53.40%) Sentiment: Bullish
+ 23 (22.33%) Sentiment: Neutral
+ 17 (16.50%) Sentiment: Bearish
+  6 (5.83%) Sentiment: Unknown
+  2 (1.94%) Sentiment: Very Bullish
 ```
-
-
-![Debug Mode](./screenshot.png "Screenshot")
 
 
