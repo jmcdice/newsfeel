@@ -40,9 +40,22 @@ Note: before running the script, be sure to set up your OpenAI API key as an env
 
 ## Example Usage
 
-Here's an example that can help understand what's in the cache:
 ```console
-  # First build the cache
+  ./newsfeel.py -n 100 --topic "Tesla" --debug
+```
+
+When running the command ./newsfeel.py -n 100 --topic "Tesla" --debug, the newsfeel.py script processes news articles related to the topic "Tesla" and performs sentiment analysis on them. The command-line arguments provided are:
+
+`-n 100`: This argument specifies the number of articles to process. In this case, the script will process up to 100 articles.
+
+`--topic "Tesla"`: This argument sets the topic for which the script fetches news articles. Here, the script will fetch articles related to "Tesla".
+
+`--debug`: This argument enables the debug mode, which makes the script print additional information during its execution, such as the title of each article, its sentiment, and any other relevant debug information.
+
+So, the command fetches up to 100 news articles related to "Tesla" and performs sentiment analysis on each article. It then caches the sentiment analysis results and provides an overall sentiment summary based on the individual article sentiments. In debug mode, the script will also print more information about each article being processed.
+
+```console
+  # First, build pickle cache
 
   ./newsfeel.py -n 100 --topic "Tesla" --debug
   https://news.google.com/search?q=Tesla%2Bwhen%3A1d&hl=en
@@ -55,6 +68,7 @@ Here's an example that can help understand what's in the cache:
 Then, analyze the cache:
 
 ```console
+
 ./newsfeel.py --analyze_cache -t Tesla
 Sentiment Analysis for: Tesla
 
@@ -69,4 +83,3 @@ Sentiment Counts:
   6 (5.83%) Sentiment: Unknown
   2 (1.94%) Sentiment: Very Bullish
 ```
-
