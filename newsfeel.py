@@ -117,7 +117,7 @@ def get_cached_sentiment_analysis(url, title, content, args, cache_file):
 
 from collections import Counter
 
-def analyze_cache_sentiments(cache_file):
+def analyze_cache_sentiments(cache_file, topic):
     if not os.path.exists(cache_file):
         print("Cache file does not exist. No sentiments to analyze.")
         return
@@ -140,8 +140,8 @@ def analyze_cache_sentiments(cache_file):
         avg_confidence = confidence_sum / total_articles
         majority_sentiment, _ = sentiment_counts.most_common(1)[0]
 
-        print(f'Cache Sentiment Analysis:')
-        print(f'Sentiment: {majority_sentiment}')
+        print(f'Sentiment Analysis for: {topic}\n') 
+        print(f'General Sentiment: {majority_sentiment}')
         print(f'Total Articles: {total_articles}')
         print(f'Average Confidence: {avg_confidence:.2f}')
         print('\nSentiment Counts:')
@@ -188,6 +188,8 @@ def main():
 
     args = parser.parse_args()
 
+    main_topic = args.topic
+
     # Create cache directory if it doesn't exist
     cache_directory = 'cache'
     if not os.path.exists(cache_directory):
@@ -209,7 +211,7 @@ def main():
     if args.print_cache:  
         print_cache_info(args)
     elif args.analyze_cache:  # Analyze cache sentiments and exit
-        analyze_cache_sentiments(cache_file)
+        analyze_cache_sentiments(cache_file, main_topic)
         exit()
     else:  
         googlenews = GoogleNews()
@@ -233,7 +235,7 @@ def main():
                 print("\n")
 
         # Analyze cache sentiments
-        analyze_cache_sentiments(cache_file)
+        analyze_cache_sentiments(cache_file, main_topic)
 
         print_cache_info(args)
 
