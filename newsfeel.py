@@ -16,6 +16,10 @@ from newspaper import Article
 from urllib.parse import urlparse, urlunparse
 import datetime
 
+EXPIRATION_LENGTH = datetime.timedelta(days=2)
+sentiment_cache = {}
+
+
 logging.getLogger('GoogleNews').setLevel(logging.ERROR)
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -47,7 +51,7 @@ def get_article_content(url, title):
         return title
     return article.text
 
-def get_cached_sentiment_analysis(url, title, content, args):
+def get_cached_sentiment_analysis(url, title, content, args, cache_file):
     if content is None or len(content) == 0:
         return "Unknown", 0, None
 
@@ -58,7 +62,7 @@ def get_cached_sentiment_analysis(url, title, content, args):
         cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash = sentiment_cache[url]
         time_diff = now - cached_time
 
-        if time_diff <= expiration_length:
+        if time_diff <= EXPIRATION_LENGTH:
             if args.debug:
                 print("Article found in cache.")
             return cached_sentiment, cached_confidence, cached_response
@@ -111,7 +115,11 @@ def get_cached_sentiment_analysis(url, title, content, args):
 
     return fsentiment, confidence, None
 
-def analyze_cache_sentiments():
+def analyze_cache_sentiments(cache_file):
+    if not os.path.exists(cache_file):
+        print("Cache file does not exist. No sentiments to analyze.")
+        return
+
     sentiment_mapping = {'bullish': 1, 'neutral': 0, 'bearish': -1}
     sentiment_sum = 0
     confidence_sum = 0
@@ -156,7 +164,7 @@ def print_cache_info(args):
 
     for url, (cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash) in sentiment_cache.items():
         time_diff = now - cached_time
-        if time_diff > expiration_length:
+        if time_diff > EXPIRATION_LENGTH:
             expired_count += 1
         elif args.print_cache:  # Check if --print_cache argument is given
             print(f"URL: {url}")
@@ -172,14 +180,6 @@ def print_cache_info(args):
         print(f"Expired articles: {expired_count}")
         print(f"Non-expired articles: {total_articles - expired_count}")
 
-cache_file = "article_cache.pkl"
-expiration_length = datetime.timedelta(days=2)
-
-try:
-    with open(cache_file, "rb") as f:
-        sentiment_cache = pickle.load(f)
-except FileNotFoundError:
-    sentiment_cache = {}
 
 def main():
     # Parse command-line arguments
@@ -187,12 +187,20 @@ def main():
     parser.add_argument('-n', '--num_articles', type=int, default=5, help='Number of articles to process')
     parser.add_argument('--print_cache', action='store_true', help='Print everything in the cache')
     parser.add_argument('--analyze_cache', action='store_true', help='Analyze cache sentiments and exit')
+    parser.add_argument('-t', '--topic', type=str, default='Financial News', help='Topic to fetch news for')  # New argument for topic
     parser.add_argument('--debug', action='store_true', help='Print debug info')
+
     args = parser.parse_args()
 
+    # Create cache directory if it doesn't exist
+    cache_directory = 'cache'
+    if not os.path.exists(cache_directory):
+        os.makedirs(cache_directory)
+
     # Update cache_file based on the given topic
-    topic_lower = args.topic.lower()
-    cache_file = f"article-{topic_lower}.pkl"
+    topic_lower = args.topic.lower().replace(' ', '-')
+    cache_file = os.path.join(cache_directory, f"article-cache-{topic_lower}.pkl")
+
 
     # Update the cache loading logic
     global sentiment_cache
@@ -205,11 +213,11 @@ def main():
     if args.print_cache:  
         print_cache_info(args)
     elif args.analyze_cache:  # Analyze cache sentiments and exit
-        analyze_cache_sentiments()
+        analyze_cache_sentiments(cache_file)
         exit()
     else:  
-        googlenews = GoogleNews(period='1d')
-        googlenews.get_news('Financial News')
+        googlenews = GoogleNews()
+        googlenews.get_news(topic_lower)
         result = googlenews.result()
 
         num_articles = args.num_articles if args.num_articles <= len(result) else len(result)
@@ -219,7 +227,7 @@ def main():
             title = article['title']
             url = "https://" + article['link']
             content = get_article_content(url, title)
-            sentiment, confidence, _ = get_cached_sentiment_analysis(url, title, content, args)
+            sentiment, confidence, _ = get_cached_sentiment_analysis(url, title, content, args, cache_file)
 
             # Process sentiment analysis results
             if args.debug:
@@ -229,7 +237,7 @@ def main():
                 print("\n")
 
         # Analyze cache sentiments
-        analyze_cache_sentiments()
+        analyze_cache_sentiments(cache_file)
 
         print_cache_info(args)
 
