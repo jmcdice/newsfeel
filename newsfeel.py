@@ -115,41 +115,55 @@ def get_cached_sentiment_analysis(url, title, content, args, cache_file):
 
     return fsentiment, confidence, None
 
-from collections import Counter
 
-def analyze_cache_sentiments(cache_file, topic):
+def analyze_cache_sentiments(cache_file, topic=''):
     if not os.path.exists(cache_file):
         print("Cache file does not exist. No sentiments to analyze.")
         return
 
-    sentiment_mapping = {'very bullish': 2, 'bullish': 1, 'neutral': 0, 'bearish': -1, 'very bearish': -2}
+    sentiment_mapping = {'bullish': 1, 'neutral': 0, 'bearish': -1}
+    sentiment_sum = 0
     confidence_sum = 0
     total_articles = 0
 
     with open(cache_file, 'rb') as f:
         sentiment_cache = pickle.load(f)
 
-    sentiment_counts = Counter()
+    sentiment_counts = {'bullish': 0, 'neutral': 0, 'bearish': 0, 'unknown': 0, 'very bullish': 0}
 
     for content_hash, (cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash) in sentiment_cache.items():
+        sentiment_counts[cached_sentiment.lower()] += 1
+        sentiment_sum += sentiment_mapping.get(cached_sentiment.lower(), 0)
         confidence_sum += float(cached_confidence)
         total_articles += 1
-        sentiment_counts[cached_sentiment] += 1
 
     if total_articles > 0:
-        avg_confidence = confidence_sum / total_articles
-        majority_sentiment, _ = sentiment_counts.most_common(1)[0]
+        bullish_percentage = (sentiment_counts['bullish'] + sentiment_counts['very bullish']) / total_articles * 100
+        bearish_percentage = sentiment_counts['bearish'] / total_articles * 100
 
-        print(f'Sentiment Analysis for: {topic}\n') 
-        print(f'General Sentiment: {majority_sentiment}')
+        sentiment_result = 'Neutral'
+        if bearish_percentage > 75:
+            sentiment_result = 'Very Bearish'
+        elif bearish_percentage > 50:
+            sentiment_result = 'Bearish'
+        elif bullish_percentage > 75:
+            sentiment_result = 'Very Bullish'
+        elif bullish_percentage > 50:
+            sentiment_result = 'Bullish'
+
+        print(f'Sentiment Analysis for: {topic}\n')
+        print(f'General Sentiment: {sentiment_result}')
         print(f'Total Articles: {total_articles}')
-        print(f'Average Confidence: {avg_confidence:.2f}')
-        print('\nSentiment Counts:')
-        for sentiment, count in sentiment_counts.most_common():
-            percentage = (count / total_articles) * 100
-            print(f'{count:3d} ({percentage:.2f}%) Sentiment: {sentiment}')
+        print(f'Average Confidence: {confidence_sum / total_articles:.2f}\n')
+
+        print('Sentiment Counts:')
+        for sentiment, count in sentiment_counts.items():
+            percentage = count / total_articles * 100
+            print(f' {count} ({percentage:.2f}%) Sentiment: {sentiment.capitalize()}')
+
     else:
         print('No articles found in cache for sentiment analysis.')
+
 
 def print_cache_info(args):
     now = datetime.datetime.now()
