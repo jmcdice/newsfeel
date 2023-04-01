@@ -3,6 +3,7 @@
 import os
 import re
 import sys
+import time
 import requests
 import logging
 import hashlib
@@ -78,10 +79,17 @@ def get_cached_sentiment_analysis(url, title, content, args, cache_file):
 
     if args.debug:
         print("Analyzing article...")
+        start_time = time.monotonic()
+
     try:
         response = send_query(content, context_text)
     except Exception as e:
         response = send_query(content, title)
+
+    if args.debug:
+        end_time = time.monotonic()
+        elapsed_time = end_time - start_time
+        print(f"GPT query time: {elapsed_time:.3f} seconds")
 
     # Check if response indicates an error
     if "Error: Token limit exceeded" in response:
@@ -129,13 +137,17 @@ def analyze_cache_sentiments(cache_file, topic=''):
     with open(cache_file, 'rb') as f:
         sentiment_cache = pickle.load(f)
 
+    #print(f"Loaded sentiment cache: {sentiment_cache}")  # Add this line to print the sentiment_cache content
+
     sentiment_counts = {'bullish': 0, 'neutral': 0, 'bearish': 0, 'unknown': 0, 'very bullish': 0}
 
     for content_hash, (cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash) in sentiment_cache.items():
-        sentiment_counts[cached_sentiment.lower()] += 1
-        sentiment_sum += sentiment_mapping.get(cached_sentiment.lower(), 0)
-        confidence_sum += float(cached_confidence)
-        total_articles += 1
+        sentiment_key = cached_sentiment.lower()
+        if sentiment_key not in sentiment_counts:
+            sentiment_counts[sentiment_key] = 0
+        sentiment_counts[sentiment_key] += 1
+        confidence_sum += cached_confidence  
+        total_articles += 1  # Add this line to increment the total_articles variable
 
     if total_articles > 0:
         bullish_percentage = (sentiment_counts['bullish'] + sentiment_counts['very bullish']) / total_articles * 100
@@ -202,7 +214,7 @@ def main():
 
     args = parser.parse_args()
 
-    main_topic = args.topic
+    main_topic = args.topic.lower().replace(' ', '-')
 
     # Create cache directory if it doesn't exist
     cache_directory = 'cache'
@@ -250,7 +262,6 @@ def main():
 
         # Analyze cache sentiments
         analyze_cache_sentiments(cache_file, main_topic)
-
         print_cache_info(args)
 
 if __name__ == "__main__":
