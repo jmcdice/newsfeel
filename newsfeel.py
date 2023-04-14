@@ -60,7 +60,7 @@ def get_cached_sentiment_analysis(url, title, content, args, cache_file):
     now = datetime.datetime.now()
 
     if url in sentiment_cache:
-        cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash = sentiment_cache[url]
+        cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash, cached_content = sentiment_cache[url]
         time_diff = now - cached_time
 
         if time_diff <= EXPIRATION_LENGTH:
@@ -115,7 +115,8 @@ def get_cached_sentiment_analysis(url, title, content, args, cache_file):
         confidence = 0
 
     fsentiment = sentiment_map.get(sentiment.lower(), "Unknown")
-    sentiment_cache[url] = (now, fsentiment, confidence, response, content_hash)
+    sentiment_cache[url] = (now, fsentiment, confidence, response, content_hash, content)
+
 
     # Save cache to disk
     with open(cache_file, "wb") as f:
@@ -123,13 +124,14 @@ def get_cached_sentiment_analysis(url, title, content, args, cache_file):
 
     return fsentiment, confidence, None
 
-
-def analyze_cache_sentiments(cache_file, topic=''):
+def analyze_cache_sentiments(cache_file, topic='', print_results=True):
+    analysis_info = {}
     if not os.path.exists(cache_file):
-        print("Cache file does not exist. No sentiments to analyze.")
-        return
+        if print_results:
+            print("Cache file does not exist. No sentiments to analyze.")
+        return analysis_info
 
-    sentiment_mapping = {'bullish': 1, 'neutral': 0, 'bearish': -1}
+    sentiment_mapping = {'very bullish': 2, 'bullish': 1, 'neutral': 0, 'bearish': -1, 'very bearish': -2}
     sentiment_sum = 0
     confidence_sum = 0
     total_articles = 0
@@ -137,44 +139,92 @@ def analyze_cache_sentiments(cache_file, topic=''):
     with open(cache_file, 'rb') as f:
         sentiment_cache = pickle.load(f)
 
-    #print(f"Loaded sentiment cache: {sentiment_cache}")  # Add this line to print the sentiment_cache content
+    sentiment_counts = {sentiment: 0 for sentiment in sentiment_mapping.keys()}
 
-    sentiment_counts = {'bullish': 0, 'neutral': 0, 'bearish': 0, 'unknown': 0, 'very bullish': 0}
+    for content_hash, (cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash, cached_content) in sentiment_cache.items():
 
-    for content_hash, (cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash) in sentiment_cache.items():
         sentiment_key = cached_sentiment.lower()
         if sentiment_key not in sentiment_counts:
             sentiment_counts[sentiment_key] = 0
         sentiment_counts[sentiment_key] += 1
-        confidence_sum += cached_confidence  
-        total_articles += 1  # Add this line to increment the total_articles variable
+        sentiment_sum += sentiment_mapping.get(sentiment_key, 0)
+        confidence_sum += cached_confidence
+        total_articles += 1
 
     if total_articles > 0:
-        bullish_percentage = (sentiment_counts['bullish'] + sentiment_counts['very bullish']) / total_articles * 100
-        bearish_percentage = sentiment_counts['bearish'] / total_articles * 100
-
+        weighted_sentiment = sentiment_sum / total_articles
         sentiment_result = 'Neutral'
-        if bearish_percentage > 75:
+
+        if weighted_sentiment <= -1.5:
             sentiment_result = 'Very Bearish'
-        elif bearish_percentage > 50:
+        elif weighted_sentiment < 0:
             sentiment_result = 'Bearish'
-        elif bullish_percentage > 75:
+        elif weighted_sentiment >= 1.5:
             sentiment_result = 'Very Bullish'
-        elif bullish_percentage > 50:
+        elif weighted_sentiment > 0:
             sentiment_result = 'Bullish'
 
-        print(f'Sentiment Analysis for: {topic}\n')
-        print(f'General Sentiment: {sentiment_result}')
-        print(f'Total Articles: {total_articles}')
-        print(f'Average Confidence: {confidence_sum / total_articles:.2f}\n')
+        if print_results:
+            print(f'Sentiment Analysis for: {topic}\n')
+            print(f'General Sentiment: {sentiment_result}')
+            print(f'Total Articles: {total_articles}')
+            print(f'Average Confidence: {confidence_sum / total_articles:.2f}\n')
 
-        print('Sentiment Counts:')
-        for sentiment, count in sentiment_counts.items():
-            percentage = count / total_articles * 100
-            print(f' {count} ({percentage:.2f}%) Sentiment: {sentiment.capitalize()}')
+            print('Sentiment Counts:')
+            for sentiment, count in sentiment_counts.items():
+                percentage = count / total_articles * 100
+                print(f' {count} ({percentage:.2f}%) Sentiment: {sentiment.capitalize()}')
+
+            print(f'\nWeighted Sentiment: {weighted_sentiment:.2f}')
+
+        analysis_info = {
+            'sentiment_result': sentiment_result,
+            'total_articles': total_articles,
+            'average_confidence': confidence_sum / total_articles,
+            'sentiment_counts': sentiment_counts,
+            'weighted_sentiment': weighted_sentiment
+        }
 
     else:
-        print('No articles found in cache for sentiment analysis.')
+        if print_results:
+            print('No articles found in cache for sentiment analysis.')
+
+    return analysis_info
+
+def analyze_summaries(cache_file, topic=''):
+    if not os.path.exists(cache_file):
+        print("Cache file does not exist. No summaries to analyze.")
+        return
+
+    with open(cache_file, 'rb') as f:
+        sentiment_cache = pickle.load(f)
+
+    summaries = []
+
+    for _, (_, cached_sentiment, _, cached_response, _, _) in sentiment_cache.items():
+        summary_entry = f"Sentiment: {cached_sentiment}, Response: {cached_response}"
+        summaries.append(summary_entry)
+
+    all_summaries = '\n'.join(summaries)
+
+    sentiment_analysis = analyze_cache_sentiments(cache_file, topic, print_results=False)
+
+    sentiment_analysis_text = (f"Based on the analysis of {sentiment_analysis['total_articles']} articles, "
+                               f"the general sentiment for {topic} is {sentiment_analysis['sentiment_result']} "
+                               f"with an average confidence of {sentiment_analysis['average_confidence']:.2f}. "
+                               f"The weighted sentiment is {sentiment_analysis['weighted_sentiment']:.2f}. "
+                               f"Sentiment counts are as follows:\n")
+    for sentiment, count in sentiment_analysis['sentiment_counts'].items():
+        sentiment_analysis_text += f"{sentiment.capitalize()}: {count}\n"
+
+    context_text = (f"Please provide a summary in financial analysis style, including future-looking predictions for the "
+                    f"topic '{topic}', based on the following summaries of articles and sentiment analysis:\n\n"
+                    f"{sentiment_analysis_text}\n"
+                    f"Article Sentiments and Responses:\n{all_summaries}")
+
+    summary_analysis = send_query(all_summaries, context_text)
+
+    return summary_analysis
 
 
 def print_cache_info(args):
@@ -184,7 +234,7 @@ def print_cache_info(args):
 
     print(f"Total articles in cache: {total_articles}")
 
-    for url, (cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash) in sentiment_cache.items():
+    for url, (cached_time, cached_sentiment, cached_confidence, cached_response, cached_content_hash, cached_content) in sentiment_cache.items():
         time_diff = now - cached_time
         if time_diff > EXPIRATION_LENGTH:
             expired_count += 1
@@ -195,6 +245,7 @@ def print_cache_info(args):
             print(f"Sentiment: {cached_sentiment}")
             print(f"Confidence: {cached_confidence}")
             print(f"Response: {cached_response}")
+            print(f"Content: {cached_content}")  # Add this line to print the cached content
             print("")
 
     if not args.print_cache:  # Print cache info if --print_cache argument is not given
@@ -209,6 +260,7 @@ def main():
     parser.add_argument('-n', '--num_articles', type=int, default=5, help='Number of articles to process')
     parser.add_argument('--print_cache', action='store_true', help='Print everything in the cache')
     parser.add_argument('--analyze_cache', action='store_true', help='Analyze cache sentiments and exit')
+    parser.add_argument('--analyze_summaries', action='store_true', help='Analyze summaries of cached articles and exit')  # New argument
     parser.add_argument('-t', '--topic', type=str, default='Financial News', help='Topic to fetch news for')  # New argument for topic
     parser.add_argument('--debug', action='store_true', help='Print debug info')
 
@@ -225,7 +277,6 @@ def main():
     topic_lower = args.topic.lower().replace(' ', '-')
     cache_file = os.path.join(cache_directory, f"article-cache-{topic_lower}.pkl")
 
-
     # Update the cache loading logic
     global sentiment_cache
     try:
@@ -234,10 +285,14 @@ def main():
     except FileNotFoundError:
         sentiment_cache = {}
 
-    if args.print_cache:  
+    if args.print_cache:
         print_cache_info(args)
     elif args.analyze_cache:  # Analyze cache sentiments and exit
         analyze_cache_sentiments(cache_file, main_topic)
+        exit()
+    elif args.analyze_summaries:  # Analyze summaries of cached articles and exit
+        summary_analysis = analyze_summaries(cache_file, main_topic)
+        print(summary_analysis)
         exit()
     else:  
         googlenews = GoogleNews()
