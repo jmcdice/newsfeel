@@ -13,6 +13,9 @@ from urllib.parse import urljoin
 from collections import Counter
 from GoogleNews import GoogleNews
 import openai
+from openai import OpenAI
+
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 from newspaper import Article
 from urllib.parse import urlparse, urlunparse
 import datetime
@@ -23,20 +26,17 @@ sentiment_cache = {}
 
 logging.getLogger('GoogleNews').setLevel(logging.ERROR)
 
-openai.api_key = os.environ["OPENAI_API_KEY"]
 
 def send_query(input, context):
     try:
-        response = openai.ChatCompletion.create(
-            model='gpt-3.5-turbo',
-            messages=[
-                { "role": "system", "content": context },
-                { "role": "user", "content": input }
-            ],
-            temperature=0.7,
-        )
-        response_text = response['choices'][0]['message']['content'].strip()
-    except openai.error.InvalidRequestError as e:
+        response = client.chat.completions.create(model='gpt-3.5-turbo',
+        messages=[
+            { "role": "system", "content": context },
+            { "role": "user", "content": input }
+        ],
+        temperature=0.7)
+        response_text = response.choices[0].message.content.strip()
+    except openai.InvalidRequestError as e:
         print(f"Error: {e}")
         response_text = "Error: Token limit exceeded"
     return response_text
