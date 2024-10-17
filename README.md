@@ -1,85 +1,110 @@
-# NewsFeel
-## NewsFeel: A Sentiment Analysis Tool for Financial News
+# Financial News Sentiment Analyzer
 
-This repo contains a Python script for analyzing the sentiment of financial news articles. The script uses OpenAI's GPT-3 API to generate a sentiment analysis of each article, and caches the results to improve performance. It now supports custom topics for fetching news articles.
+## Overview
+
+This Python script analyzes the sentiment of financial news articles using the Google News API and OpenAI's GPT-3.5 model. It fetches articles based on a specified topic, analyzes their sentiment, and provides a summary of the overall sentiment trends.
+
+## Features
+
+- Fetch news articles from Google News based on a specified topic
+- Analyze sentiment of articles using OpenAI's GPT-3.5 model
+- Cache sentiment analysis results to avoid redundant API calls
+- Provide summary analysis of sentiment trends
+- Output results to CSV file (optional)
+- Command-line interface for easy usage and customization
+
+## Requirements
+
+- Python 3.6+
+- OpenAI API key (set as environment variable `OPENAI_API_KEY`)
+- Required Python packages (install via `pip install -r requirements.txt`):
+  - GoogleNews
+  - newspaper3k
+  - tqdm
+  - openai
 
 ## Installation
-Clone the repo:
-```console
-  git clone https://github.com/username/repo.git
-```
 
-Install the required packages:
-```console
-  pip install -r requirements.txt
-```
+1. Clone the repository:
+   ```
+   git clone https://github.com/jmcdice/newsfeel.git
+   cd newsfeel
+   ```
 
-Set up your OpenAI API key as an environment variable:
-```console
-  export OPENAI_API_KEY=your_api_key
-```
+2. Install the required packages:
+   ```
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+3. Set up your OpenAI API key as an environment variable:
+   ```
+   export OPENAI_API_KEY='your-api-key-here'
+   ```
 
 ## Usage
-The script can be run using the following command:
 
-```console
-  python3 newsfeel.py [-h] [-n NUM_ARTICLES] [--print_cache] [--analyze_cache] [--debug] [-t TOPIC]
-```
-
-The optional arguments are:
-
-- -n NUM_ARTICLES: the number of articles to process (default is 5)
-- -t TOPIC: the topic to fetch news for (default is 'Financial News')
-- --print_cache: print all cached sentiment analysis results
-- --analyze_cache: analyze sentiment analysis results in the cache and exit
-- --debug: print debug info
-
-When the script is run, it fetches news articles based on the provided topic from Google News and processes each one using the GPT-3 API. The sentiment analysis results are printed to the console. Results are cached to improve performance, and the cache can be printed or analyzed using the optional arguments.
-
-Note: before running the script, be sure to set up your OpenAI API key as an environment variable.
-
-## Example Usage
-
-```console
-  ./newsfeel.py -n 100 --topic "Tesla" --debug
-```
-
-When running the command ./newsfeel.py -n 100 --topic "Tesla" --debug, the newsfeel.py script processes news articles related to the topic "Tesla" and performs sentiment analysis on them. The command-line arguments provided are:
-
-`-n 100`: This argument specifies the number of articles to process. In this case, the script will process up to 100 articles.
-
-`--topic "Tesla"`: This argument sets the topic for which the script fetches news articles. Here, the script will fetch articles related to "Tesla".
-
-`--debug`: This argument enables the debug mode, which makes the script print additional information during its execution, such as the title of each article, its sentiment, and any other relevant debug information.
-
-So, the command fetches up to 100 news articles related to "Tesla" and performs sentiment analysis on each article. It then caches the sentiment analysis results and provides an overall sentiment summary based on the individual article sentiments. In debug mode, the script will also print more information about each article being processed.
-
-```console
-  # First, build pickle cache
-
-  ./newsfeel.py -n 100 --topic "Tesla" --debug
-  https://news.google.com/search?q=Tesla%2Bwhen%3A1d&hl=en
-  Processing 100 articles...
-
-  ...
+Run the script using the following command:
 
 ```
-
-Then, analyze the cache:
-
-```console
-
-./newsfeel.py --analyze_cache -t Tesla
-Sentiment Analysis for: Tesla
-
-General Sentiment: Bullish
-Total Articles: 103
-Average Confidence: 7.49
-
-Sentiment Counts:
- 55 (53.40%) Sentiment: Bullish
- 23 (22.33%) Sentiment: Neutral
- 17 (16.50%) Sentiment: Bearish
-  6 (5.83%) Sentiment: Unknown
-  2 (1.94%) Sentiment: Very Bullish
+python newsfeel.py [options]
 ```
+
+### Options:
+
+- `-n`, `--num_articles`: Number of articles to process (default: 5)
+- `--print_cache`: Print everything in the cache
+- `--analyze_cache`: Analyze cache sentiments and exit
+- `--analyze_summaries`: Analyze summaries of cached articles and exit
+- `-t`, `--topic`: Topic to fetch news for (default: "Financial News")
+- `--loglevel`: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- `-o`, `--output_file`: File to write output results to (CSV format)
+
+### Examples:
+
+1. Analyze 10 articles about "Bitcoin":
+   ```
+   python newsfeel.py -n 10 -t "Bitcoin"
+   ```
+
+2. Analyze cache sentiments for previously fetched "Stock Market" articles:
+   ```
+   python newsfeel.py --analyze_cache -t "Stock Market"
+   ```
+
+3. Generate a summary analysis of cached "Cryptocurrency" articles:
+   ```
+   python newsfeel.py --analyze_summaries -t "Cryptocurrency"
+   ```
+
+4. Output results to a CSV file:
+   ```
+   python newsfeel.py -n 20 -t "Gold Price" -o results.csv
+   ```
+
+## Output
+
+The script provides the following output:
+
+1. Sentiment analysis for each processed article
+2. Overall sentiment analysis summary, including:
+   - General sentiment (Very Bearish, Bearish, Neutral, Bullish, Very Bullish)
+   - Total number of articles analyzed
+   - Average confidence score
+   - Sentiment distribution
+   - Weighted sentiment score
+
+## Caching
+
+The script uses a caching mechanism to store sentiment analysis results. This helps to:
+- Reduce API calls to OpenAI
+- Speed up subsequent runs on the same topic
+- Allow for offline analysis of previously fetched articles
+
+Cache files are stored in the `cache` directory with filenames based on the analyzed topic.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
