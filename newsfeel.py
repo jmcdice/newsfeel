@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 from newspaper import Article
-from openai import OpenAI
+from openai import OpenAI  # Updated import
 from tqdm import tqdm
 
 # Configure logging
@@ -31,7 +31,7 @@ if not OPENAI_API_KEY:
     exit(1)
 
 # Instantiate the OpenAI client
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY)  # Updated client instantiation
 
 EXPIRATION_LENGTH = datetime.timedelta(days=2)
 
@@ -51,6 +51,7 @@ class SentimentCacheEntry:
     response: str
     content_hash: str
     content: str
+    key_insights: str  # New field for key insights
 
 
 def send_query(input_text: str, context: str) -> str:
@@ -59,7 +60,7 @@ def send_query(input_text: str, context: str) -> str:
     """
     try:
         completion = client.chat.completions.create(
-            model='gpt-3.5-turbo',
+            model='gpt-4',
             messages=[
                 {"role": "system", "content": context},
                 {"role": "user", "content": input_text}
@@ -122,13 +123,13 @@ def get_cached_sentiment_analysis(
     content: str,
     cache_file: str,
     sentiment_cache: Dict[str, 'SentimentCacheEntry']
-) -> Tuple[str, int, Optional[str]]:
+) -> Tuple[str, int, Optional[str], str]:
     """
     Analyze the sentiment of the article content, using cache if available.
     """
     if not content:
         logging.warning(f"No content for URL: {url}. Skipping sentiment analysis.")
-        return "Unknown", 0, None
+        return "Unknown", 0, None, ""
 
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
     now = datetime.datetime.now()
@@ -139,7 +140,7 @@ def get_cached_sentiment_analysis(
 
         if time_diff <= EXPIRATION_LENGTH:
             logging.debug(f"Article found in cache: {url}")
-            return cache_entry.sentiment, cache_entry.confidence, cache_entry.response
+            return cache_entry.sentiment, cache_entry.confidence, cache_entry.response, cache_entry.key_insights
         else:
             logging.info(f"Article cache expired for URL: {url}")
 
@@ -149,7 +150,7 @@ def get_cached_sentiment_analysis(
         "itself: 'Sentiment: <sentiment>' where <sentiment> is the sentiment you chose. "
         "Print on a line by itself: 'Confidence: <confidence>' where <confidence> is "
         "a number between 0 and 10 that represents how confident you are in your sentiment choice. "
-        "Then, please provide an explanation for your sentiment choice."
+        "Then, please provide a bullet point list of key insights from the article that explain the reason for your sentiment choice."
     )
 
     logging.debug(f"Analyzing sentiment for URL: {url}")
@@ -166,7 +167,7 @@ def get_cached_sentiment_analysis(
 
     if "Error: Token limit exceeded" in response:
         logging.error(f"Token limit exceeded for URL {url}. Ignoring the article.")
-        return "Unknown", 0, None
+        return "Unknown", 0, None, ""
 
     sentiment_map = {
         'very bullish': 'Very Bullish',
@@ -186,10 +187,13 @@ def get_cached_sentiment_analysis(
     if match:
         sentiment = match.group(1).lower().strip()
         confidence = int(match.group(2))
+        confidence_end = match.end()
+        key_insights = response[confidence_end:].strip()
         logging.debug(f"Parsed sentiment for URL {url}: {sentiment}, Confidence: {confidence}")
     else:
         sentiment = "Unknown"
         confidence = 0
+        key_insights = ""
         logging.warning(f"Failed to parse sentiment for URL {url}. Response: {response}")
 
     fsentiment = sentiment_map.get(sentiment.lower(), "Unknown")
@@ -200,7 +204,8 @@ def get_cached_sentiment_analysis(
         confidence=confidence,
         response=response,
         content_hash=content_hash,
-        content=content
+        content=content,
+        key_insights=key_insights  # Store key insights
     )
     sentiment_cache[url] = cache_entry
 
@@ -212,7 +217,7 @@ def get_cached_sentiment_analysis(
     except Exception as e:
         logging.error(f"Failed to save cache for URL {url}: {e}")
 
-    return fsentiment, confidence, response
+    return fsentiment, confidence, response, key_insights
 
 
 def analyze_cache_sentiments(cache_file: str, topic: str):
@@ -266,7 +271,7 @@ def analyze_cache_sentiments(cache_file: str, topic: str):
         'Very Bearish': -2
     }
     weighted_sentiment = sum(
-        sentiments[sentiment] * weight for sentiment, weight in sentiment_weights.items()
+        sentiments[sentiment] * sentiment_weights.get(sentiment, 0) for sentiment in sentiments
     ) / total_articles
 
     print(f"\nSentiment Analysis for: {topic}\n")
@@ -316,7 +321,28 @@ def print_cache_info(cache_file: str, print_entries: bool = False):
             print(f"Cached Time: {entry.cached_time}")
             print(f"Sentiment: {entry.sentiment}")
             print(f"Confidence: {entry.confidence}")
+            print(f"Key Insights:\n{entry.key_insights}")
             print(f"Response: {entry.response}\n")
+
+
+def generate_final_summary(results, topic):
+    """
+    Generate a summary analysis of the results using OpenAI API.
+    """
+    summary_input = f"Provide a concise summary and analysis of the following articles related to '{topic}'. Highlight common themes, sentiments, and any significant information.\n\n"
+    for idx, res in enumerate(results):
+        summary_input += f"Article {idx + 1}: {res['title']}\n"
+        summary_input += f"Sentiment: {res['sentiment']}\n"
+        summary_input += f"Key Insights:\n{res['key_insights']}\n\n"
+
+    context_text = (
+        "Based on the provided article summaries, generate a concise summary that reflects the overall sentiment and key points. Highlight common themes and significant information."
+    )
+
+    logging.debug("Generating final summary using OpenAI API.")
+    summary = send_query(summary_input, context_text)
+
+    return summary
 
 
 def analyze_summaries(cache_file: str, topic: str) -> Optional[str]:
@@ -433,7 +459,7 @@ def main():
 
             logging.debug(f"Fetching content for URL: {url}")
             content = get_article_content(url, title)
-            sentiment, confidence, response = get_cached_sentiment_analysis(
+            sentiment, confidence, response, key_insights = get_cached_sentiment_analysis(
                 url, title, content, cache_file, sentiment_cache
             )
 
@@ -443,6 +469,7 @@ def main():
                 'url': url,
                 'sentiment': sentiment,
                 'confidence': confidence,
+                'key_insights': key_insights,  # Include key insights
                 'response': response
             })
 
@@ -454,10 +481,15 @@ def main():
         analyze_cache_sentiments(cache_file, main_topic)
         print_cache_info(cache_file)
 
+        # Generate final summary
+        summary = generate_final_summary(results, main_topic)
+        print("\nFinal Summary:\n")
+        print(summary)
+
         # Output results to CSV if specified
         if args.output_file:
             import csv
-            fieldnames = ['index', 'title', 'url', 'sentiment', 'confidence', 'response']
+            fieldnames = ['index', 'title', 'url', 'sentiment', 'confidence', 'key_insights', 'response']
             try:
                 with open(args.output_file, 'w', newline='', encoding='utf-8') as csvfile:
                     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
