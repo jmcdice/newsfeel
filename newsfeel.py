@@ -7,26 +7,40 @@ import logging
 import os
 import pickle
 import re
+import sys
 import time
-from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urljoin
 
-from GoogleNews import GoogleNews
+import requests
 from newspaper import Article
+from openai import OpenAI
 from tqdm import tqdm
 
-# Import the new OpenAI client
-from openai import OpenAI
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+# Check for OpenAI API Key
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+if not OPENAI_API_KEY:
+    logging.error("OPENAI_API_KEY environment variable not set.")
+    exit(1)
 
 # Instantiate the OpenAI client
-client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 EXPIRATION_LENGTH = datetime.timedelta(days=2)
+
+NEWS_API_KEY = os.getenv('NEWS_API_KEY')
+if not NEWS_API_KEY:
+    logging.error("NEWS_API_KEY environment variable not set.")
+    exit(1)
+
+NEWS_API_ENDPOINT = 'https://newsapi.org/v2/everything'
 
 
 @dataclass
@@ -42,16 +56,9 @@ class SentimentCacheEntry:
 def send_query(input_text: str, context: str) -> str:
     """
     Send a query to OpenAI's ChatCompletion API and return the response text.
-
-    Parameters:
-        input_text (str): The user input to send to the model.
-        context (str): The system prompt or context for the model.
-
-    Returns:
-        str: The response text from the model.
     """
     try:
-        response = client.chat.completions.create(
+        completion = client.chat.completions.create(
             model='gpt-3.5-turbo',
             messages=[
                 {"role": "system", "content": context},
@@ -59,55 +66,68 @@ def send_query(input_text: str, context: str) -> str:
             ],
             temperature=0.7
         )
-        response_text = response.choices[0].message.content.strip()
+        response_text = completion.choices[0].message.content.strip()
+        logging.debug(f"OpenAI response: {response_text}")
+        return response_text
     except Exception as e:
         logging.error(f"OpenAI API error: {e}")
-        response_text = "Error: Token limit exceeded"
-    return response_text
+        return "Error: Token limit exceeded"
+
 
 def get_article_content(url: str, title: str) -> str:
     """
     Fetches and returns the content of an article from a given URL.
-
-    Parameters:
-        url (str): The fully qualified URL of the article to fetch.
-        title (str): The title of the article.
-
-    Returns:
-        str: The content of the article, or the title if content could not be fetched.
     """
     article = Article(url, language='en')
     try:
         article.download()
         article.parse()
-        return article.text
+        content = article.text
+        if not content:
+            logging.warning(f"Empty content retrieved for URL: {url}. Using title as content.")
+            return title
+        logging.debug(f"Successfully fetched content for URL: {url}")
+        return content
     except Exception as e:
         logging.error(f"Error fetching article content from {url}: {e}")
         return title
+
+
+def get_news_articles(topic: str, num_articles: int) -> list:
+    """
+    Fetch news articles using NewsAPI.
+    """
+    params = {
+        'q': topic,
+        'language': 'en',
+        'sortBy': 'publishedAt',
+        'pageSize': num_articles,
+        'apiKey': NEWS_API_KEY
+    }
+    try:
+        response = requests.get(NEWS_API_ENDPOINT, params=params)
+        response.raise_for_status()
+        data = response.json()
+        articles = data.get('articles', [])
+        logging.info(f"Fetched {len(articles)} articles for topic '{topic}'.")
+        return articles
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching news articles: {e}")
+        return []
+
 
 def get_cached_sentiment_analysis(
     url: str,
     title: str,
     content: str,
-    args: argparse.Namespace,
     cache_file: str,
     sentiment_cache: Dict[str, 'SentimentCacheEntry']
 ) -> Tuple[str, int, Optional[str]]:
     """
     Analyze the sentiment of the article content, using cache if available.
-
-    Parameters:
-        url (str): The URL of the article.
-        title (str): The title of the article.
-        content (str): The content of the article.
-        args (argparse.Namespace): Parsed command-line arguments.
-        cache_file (str): Path to the cache file.
-        sentiment_cache (Dict[str, SentimentCacheEntry]): The sentiment cache.
-
-    Returns:
-        Tuple[str, int, Optional[str]]: Sentiment label, confidence score, and optional response.
     """
     if not content:
+        logging.warning(f"No content for URL: {url}. Skipping sentiment analysis.")
         return "Unknown", 0, None
 
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -118,10 +138,10 @@ def get_cached_sentiment_analysis(
         time_diff = now - cache_entry.cached_time
 
         if time_diff <= EXPIRATION_LENGTH:
-            logging.debug("Article found in cache.")
+            logging.debug(f"Article found in cache: {url}")
             return cache_entry.sentiment, cache_entry.confidence, cache_entry.response
         else:
-            logging.info("Article found in cache, but expired.")
+            logging.info(f"Article cache expired for URL: {url}")
 
     context_text = (
         "Analyze the sentiment of this article and rate it as 'bullish', 'very bullish', "
@@ -132,20 +152,20 @@ def get_cached_sentiment_analysis(
         "Then, please provide an explanation for your sentiment choice."
     )
 
-    logging.debug("Analyzing article...")
+    logging.debug(f"Analyzing sentiment for URL: {url}")
     start_time = time.monotonic()
 
-    try:
-        response = send_query(content, context_text)
-    except Exception as e:
-        logging.error(f"Error during OpenAI API call: {e}")
-        response = send_query(content, title)
+    # Truncate content if it's too long
+    max_tokens = 2048  # Adjust based on OpenAI's token limit
+    content = content[:max_tokens]
+
+    response = send_query(content, context_text)
 
     elapsed_time = time.monotonic() - start_time
-    logging.debug(f"GPT query time: {elapsed_time:.3f} seconds")
+    logging.debug(f"GPT query time for URL {url}: {elapsed_time:.3f} seconds")
 
     if "Error: Token limit exceeded" in response:
-        logging.error("Token limit exceeded. Ignoring the article.")
+        logging.error(f"Token limit exceeded for URL {url}. Ignoring the article.")
         return "Unknown", 0, None
 
     sentiment_map = {
@@ -158,7 +178,7 @@ def get_cached_sentiment_analysis(
     }
 
     match = re.search(
-        r'Sentiment:\s*([a-zA-Z\s]+)[^0-9]*\s*Confidence:\s*(\d+)',
+        r'Sentiment:\s*([a-zA-Z\s]+)\s*Confidence:\s*(\d+)',
         response,
         re.IGNORECASE | re.DOTALL
     )
@@ -166,9 +186,11 @@ def get_cached_sentiment_analysis(
     if match:
         sentiment = match.group(1).lower().strip()
         confidence = int(match.group(2))
+        logging.debug(f"Parsed sentiment for URL {url}: {sentiment}, Confidence: {confidence}")
     else:
         sentiment = "Unknown"
         confidence = 0
+        logging.warning(f"Failed to parse sentiment for URL {url}. Response: {response}")
 
     fsentiment = sentiment_map.get(sentiment.lower(), "Unknown")
 
@@ -183,186 +205,157 @@ def get_cached_sentiment_analysis(
     sentiment_cache[url] = cache_entry
 
     # Save cache to disk
-    with open(cache_file, "wb") as f:
-        pickle.dump(sentiment_cache, f)
+    try:
+        with open(cache_file, "wb") as f:
+            pickle.dump(sentiment_cache, f)
+        logging.debug(f"Cache updated and saved for URL: {url}")
+    except Exception as e:
+        logging.error(f"Failed to save cache for URL {url}: {e}")
 
     return fsentiment, confidence, response
 
 
-def analyze_cache_sentiments(
-    cache_file: str,
-    topic: str = '',
-    print_results: bool = True
-) -> Dict[str, Any]:
+def analyze_cache_sentiments(cache_file: str, topic: str):
     """
-    Analyze sentiments from the cache and optionally print results.
-
-    Parameters:
-        cache_file (str): Path to the cache file.
-        topic (str): Topic of the articles.
-        print_results (bool): Whether to print the analysis results.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing analysis information.
+    Analyze sentiments in the cache and print a summary.
     """
-    analysis_info = {}
-    if not os.path.exists(cache_file):
-        if print_results:
-            logging.info("Cache file does not exist. No sentiments to analyze.")
-        return analysis_info
-
-    sentiment_mapping = {
-        'very bullish': 2,
-        'bullish': 1,
-        'neutral': 0,
-        'bearish': -1,
-        'very bearish': -2
-    }
-    sentiment_sum = 0
-    confidence_sum = 0
-    total_articles = 0
-
-    with open(cache_file, 'rb') as f:
-        sentiment_cache = pickle.load(f)
-
-    sentiment_counts = {sentiment: 0 for sentiment in sentiment_mapping.keys()}
-
-    for cache_entry in sentiment_cache.values():
-        sentiment_key = cache_entry.sentiment.lower()
-        if sentiment_key not in sentiment_counts:
-            sentiment_counts[sentiment_key] = 0
-        sentiment_counts[sentiment_key] += 1
-        sentiment_sum += sentiment_mapping.get(sentiment_key, 0)
-        confidence_sum += cache_entry.confidence
-        total_articles += 1
-
-    if total_articles > 0:
-        weighted_sentiment = sentiment_sum / total_articles
-        sentiment_result = 'Neutral'
-
-        if weighted_sentiment <= -1.5:
-            sentiment_result = 'Very Bearish'
-        elif weighted_sentiment < 0:
-            sentiment_result = 'Bearish'
-        elif weighted_sentiment >= 1.5:
-            sentiment_result = 'Very Bullish'
-        elif weighted_sentiment > 0:
-            sentiment_result = 'Bullish'
-
-        if print_results:
-            print(f'Sentiment Analysis for: {topic}\n')
-            print(f'General Sentiment: {sentiment_result}')
-            print(f'Total Articles: {total_articles}')
-            print(f'Average Confidence: {confidence_sum / total_articles:.2f}\n')
-
-            print('Sentiment Counts:')
-            for sentiment, count in sentiment_counts.items():
-                percentage = count / total_articles * 100
-                print(f' {count} ({percentage:.2f}%) Sentiment: {sentiment.capitalize()}')
-
-            print(f'\nWeighted Sentiment: {weighted_sentiment:.2f}')
-
-        analysis_info = {
-            'sentiment_result': sentiment_result,
-            'total_articles': total_articles,
-            'average_confidence': confidence_sum / total_articles,
-            'sentiment_counts': sentiment_counts,
-            'weighted_sentiment': weighted_sentiment
-        }
-    else:
-        if print_results:
-            logging.info('No articles found in cache for sentiment analysis.')
-
-    return analysis_info
-
-
-def analyze_summaries(cache_file: str, topic: str = '') -> Optional[str]:
-    """
-    Analyze summaries of cached articles and generate a summary analysis.
-
-    Parameters:
-        cache_file (str): Path to the cache file.
-        topic (str): Topic of the articles.
-
-    Returns:
-        Optional[str]: The summary analysis or None if cache is empty.
-    """
-    if not os.path.exists(cache_file):
-        logging.info("Cache file does not exist. No summaries to analyze.")
-        return None
-
-    with open(cache_file, 'rb') as f:
-        sentiment_cache = pickle.load(f)
-
-    summaries = []
-
-    for cache_entry in sentiment_cache.values():
-        summary_entry = f"Sentiment: {cache_entry.sentiment}, Response: {cache_entry.response}"
-        summaries.append(summary_entry)
-
-    all_summaries = '\n'.join(summaries)
-
-    sentiment_analysis = analyze_cache_sentiments(cache_file, topic, print_results=False)
-
-    sentiment_analysis_text = (
-        f"Based on the analysis of {sentiment_analysis['total_articles']} articles, "
-        f"the general sentiment for {topic} is {sentiment_analysis['sentiment_result']} "
-        f"with an average confidence of {sentiment_analysis['average_confidence']:.2f}. "
-        f"The weighted sentiment is {sentiment_analysis['weighted_sentiment']:.2f}. "
-        f"Sentiment counts are as follows:\n"
-    )
-    for sentiment, count in sentiment_analysis['sentiment_counts'].items():
-        sentiment_analysis_text += f"{sentiment.capitalize()}: {count}\n"
-
-    context_text = (
-        f"Please provide a summary in financial analysis style, including future-looking predictions for the "
-        f"topic '{topic}', based on the following summaries of articles and sentiment analysis:\n\n"
-        f"{sentiment_analysis_text}\n"
-        f"Article Sentiments and Responses:\n{all_summaries}"
-    )
-
-    summary_analysis = send_query(all_summaries, context_text)
-
-    return summary_analysis
-
-
-def print_cache_info(cache_file: str, print_entries: bool = False) -> None:
-    """
-    Print information about the cache.
-
-    Parameters:
-        cache_file (str): Path to the cache file.
-        print_entries (bool): Whether to print all cache entries.
-    """
-    now = datetime.datetime.now()
     try:
-        with open(cache_file, 'rb') as f:
+        with open(cache_file, "rb") as f:
             sentiment_cache = pickle.load(f)
     except FileNotFoundError:
-        logging.info("Cache file does not exist.")
+        logging.warning(f"No cache file found at {cache_file}")
+        return
+    except Exception as e:
+        logging.error(f"Failed to load cache file {cache_file}: {e}")
         return
 
-    total_articles = len(sentiment_cache)
-    expired_count = 0
+    sentiments = {
+        'Very Bullish': 0,
+        'Bullish': 0,
+        'Neutral': 0,
+        'Bearish': 0,
+        'Very Bearish': 0,
+        'Unknown': 0
+    }
+    total_confidence = 0
+    total_articles = 0
 
-    for url, cache_entry in sentiment_cache.items():
-        time_diff = now - cache_entry.cached_time
+    now = datetime.datetime.now()
+
+    for url, entry in sentiment_cache.items():
+        time_diff = now - entry.cached_time
         if time_diff > EXPIRATION_LENGTH:
-            expired_count += 1
-        elif print_entries:
-            print(f"URL: {url}")
-            print(f"Content hash: {cache_entry.content_hash}")
-            print(f"Cached time: {cache_entry.cached_time}")
-            print(f"Sentiment: {cache_entry.sentiment}")
-            print(f"Confidence: {cache_entry.confidence}")
-            print(f"Response: {cache_entry.response}")
-            print(f"Content: {cache_entry.content}")
-            print("")
+            continue
 
-    if not print_entries:
-        print(f"Total articles in cache: {total_articles}")
-        print(f"Expired articles: {expired_count}")
-        print(f"Non-expired articles: {total_articles - expired_count}")
+        sentiments[entry.sentiment] += 1
+        total_confidence += entry.confidence
+        total_articles += 1
+
+    if total_articles == 0:
+        logging.info("No non-expired articles in cache to analyze.")
+        return
+
+    general_sentiment = max(sentiments, key=sentiments.get)
+    average_confidence = total_confidence / total_articles
+
+    sentiment_weights = {
+        'Very Bullish': 2,
+        'Bullish': 1,
+        'Neutral': 0,
+        'Bearish': -1,
+        'Very Bearish': -2
+    }
+    weighted_sentiment = sum(
+        sentiments[sentiment] * weight for sentiment, weight in sentiment_weights.items()
+    ) / total_articles
+
+    print(f"\nSentiment Analysis for: {topic}\n")
+    print(f"General Sentiment: {general_sentiment}")
+    print(f"Total Articles: {total_articles}")
+    print(f"Average Confidence: {average_confidence:.2f}\n")
+    print("Sentiment Counts:")
+    for sentiment, count in sentiments.items():
+        percentage = (count / total_articles) * 100 if total_articles > 0 else 0
+        print(f" {count} ({percentage:.2f}%) Sentiment: {sentiment}")
+
+    print(f"\nWeighted Sentiment: {weighted_sentiment:.2f}")
+
+
+def print_cache_info(cache_file: str, print_entries: bool = False):
+    """
+    Print information about the cache and optionally print all entries.
+    """
+    try:
+        with open(cache_file, "rb") as f:
+            sentiment_cache = pickle.load(f)
+    except FileNotFoundError:
+        logging.warning(f"No cache file found at {cache_file}")
+        return
+    except Exception as e:
+        logging.error(f"Failed to load cache file {cache_file}: {e}")
+        return
+
+    now = datetime.datetime.now()
+    expired_entries = 0
+    non_expired_entries = 0
+
+    for entry in sentiment_cache.values():
+        time_diff = now - entry.cached_time
+        if time_diff > EXPIRATION_LENGTH:
+            expired_entries += 1
+        else:
+            non_expired_entries += 1
+
+    logging.info(f"Total articles in cache: {len(sentiment_cache)}")
+    logging.info(f"Expired articles: {expired_entries}")
+    logging.info(f"Non-expired articles: {non_expired_entries}")
+
+    if print_entries:
+        for url, entry in sentiment_cache.items():
+            print(f"URL: {url}")
+            print(f"Cached Time: {entry.cached_time}")
+            print(f"Sentiment: {entry.sentiment}")
+            print(f"Confidence: {entry.confidence}")
+            print(f"Response: {entry.response}\n")
+
+
+def analyze_summaries(cache_file: str, topic: str) -> Optional[str]:
+    """
+    Generate a summary analysis of the cached articles.
+    """
+    try:
+        with open(cache_file, "rb") as f:
+            sentiment_cache = pickle.load(f)
+    except FileNotFoundError:
+        logging.warning(f"No cache file found at {cache_file}")
+        return None
+    except Exception as e:
+        logging.error(f"Failed to load cache file {cache_file}: {e}")
+        return None
+
+    now = datetime.datetime.now()
+    contents = []
+
+    for entry in sentiment_cache.values():
+        time_diff = now - entry.cached_time
+        if time_diff <= EXPIRATION_LENGTH:
+            contents.append(entry.content)
+
+    if not contents:
+        logging.info("No non-expired articles in cache to analyze.")
+        return None
+
+    combined_content = "\n\n".join(contents)
+
+    context_text = (
+        f"Provide a concise summary and analysis of the following articles related to '{topic}'. "
+        f"Highlight common themes, sentiments, and any significant information."
+    )
+
+    logging.debug("Generating summary analysis using OpenAI API.")
+    summary = send_query(combined_content, context_text)
+
+    return summary
 
 
 def main():
@@ -379,24 +372,39 @@ def main():
     args = parser.parse_args()
 
     # Set logging level
-    logging.getLogger().setLevel(getattr(logging, args.loglevel.upper(), None))
+    log_level = getattr(logging, args.loglevel.upper(), logging.INFO)
+    logging.getLogger().setLevel(log_level)
+    logging.debug(f"Logging level set to {args.loglevel.upper()}")
 
     main_topic = args.topic.lower().replace(' ', '-')
 
     # Create cache directory if it doesn't exist
-    cache_directory = 'cache'
+    cache_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache')
     if not os.path.exists(cache_directory):
-        os.makedirs(cache_directory)
+        try:
+            os.makedirs(cache_directory)
+            logging.debug(f"Created cache directory at {cache_directory}")
+        except Exception as e:
+            logging.error(f"Failed to create cache directory at {cache_directory}: {e}")
+            exit(1)
+    else:
+        logging.debug(f"Cache directory exists at {cache_directory}")
 
     # Update cache_file based on the given topic
     topic_lower = args.topic.lower().replace(' ', '-')
     cache_file = os.path.join(cache_directory, f"article-cache-{topic_lower}.pkl")
+    logging.debug(f"Cache file will be located at {cache_file}")
 
     # Load the cache
     try:
         with open(cache_file, "rb") as f:
             sentiment_cache = pickle.load(f)
+        logging.debug(f"Loaded existing cache from {cache_file} with {len(sentiment_cache)} entries.")
     except FileNotFoundError:
+        sentiment_cache = {}
+        logging.info(f"No existing cache found. Starting fresh for topic: {args.topic}")
+    except Exception as e:
+        logging.error(f"Failed to load cache file {cache_file}: {e}")
         sentiment_cache = {}
 
     if args.print_cache:
@@ -408,23 +416,27 @@ def main():
         if summary_analysis:
             print(summary_analysis)
     else:
-        googlenews = GoogleNews()
-        googlenews.get_news(topic_lower)
-        result = googlenews.result()
+        articles = get_news_articles(args.topic, args.num_articles)
 
-        num_articles = min(args.num_articles, len(result))
-        logging.info(f"Processing {num_articles} articles...\n")
+        if not articles:
+            logging.warning(f"No articles found for topic: {args.topic}")
+            return
 
         results = []
 
-        for idx, article in enumerate(tqdm(result[:num_articles], desc="Processing articles")):
-            title = article['title']
-            url = urljoin('https://news.google.com', article['link'])  # Correct URL construction
+        for idx, article in enumerate(tqdm(articles, desc="Processing articles")):
+            title = article.get('title', 'No Title')
+            url = article.get('url', '')
+            if not url:
+                logging.warning(f"No URL found for article titled '{title}'. Skipping.")
+                continue
+
+            logging.debug(f"Fetching content for URL: {url}")
             content = get_article_content(url, title)
             sentiment, confidence, response = get_cached_sentiment_analysis(
-                url, title, content, args, cache_file, sentiment_cache
+                url, title, content, cache_file, sentiment_cache
             )
-        
+
             results.append({
                 'index': idx + 1,
                 'title': title,
@@ -446,12 +458,16 @@ def main():
         if args.output_file:
             import csv
             fieldnames = ['index', 'title', 'url', 'sentiment', 'confidence', 'response']
-            with open(args.output_file, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(results)
-            logging.info(f"Results written to {args.output_file}")
+            try:
+                with open(args.output_file, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(results)
+                logging.info(f"Results written to {args.output_file}")
+            except Exception as e:
+                logging.error(f"Failed to write results to CSV: {e}")
 
 
 if __name__ == "__main__":
     main()
+
